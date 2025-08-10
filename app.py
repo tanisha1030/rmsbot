@@ -2,19 +2,50 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import time
+import os
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+
+# --------------------
+# Fallback Data Generator
+# --------------------
+def create_sample_data(n_samples=1000):
+    np.random.seed(42)
+    normal_packet_sizes = np.random.normal(500, 150, n_samples // 2)
+    normal_intervals = np.random.exponential(2.0, n_samples // 2)
+    botnet_packet_sizes = np.random.normal(800, 100, n_samples // 2)
+    botnet_intervals = np.random.exponential(0.5, n_samples // 2)
+
+    packet_sizes = np.abs(np.concatenate([normal_packet_sizes, botnet_packet_sizes]))
+    intervals = np.abs(np.concatenate([normal_intervals, botnet_intervals]))
+    labels = np.concatenate([np.zeros(n_samples // 2), np.ones(n_samples // 2)])
+
+    df = pd.DataFrame({
+        'packet_size': packet_sizes,
+        'interval': intervals,
+        'is_botnet': labels.astype(int)
+    })
+    return df.sample(frac=1).reset_index(drop=True)
 
 # --------------------
 # Load Dataset
 # --------------------
 @st.cache_data
 def load_data():
-    df = pd.read_csv("synthetic_robot_logs.csv")
-    if not all(col in df.columns for col in ["packet_size", "interval", "is_botnet"]):
-        st.error("Dataset must contain 'packet_size', 'interval', 'is_botnet' columns")
-        st.stop()
-    return df
+    try:
+        if os.path.exists("synthetic_robot_logs.csv"):
+            df = pd.read_csv("synthetic_robot_logs.csv")
+            st.success("✅ Loaded dataset from file")
+        else:
+            st.warning("⚠️ Dataset not found. Generating synthetic data instead.")
+            df = create_sample_data(1000)
+        if not all(col in df.columns for col in ["packet_size", "interval", "is_botnet"]):
+            st.error("Dataset must contain 'packet_size', 'interval', 'is_botnet' columns")
+            st.stop()
+        return df
+    except Exception as e:
+        st.error(f"Error loading dataset: {e}")
+        return create_sample_data(1000)
 
 # --------------------
 # Train Model
