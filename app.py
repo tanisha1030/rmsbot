@@ -52,15 +52,14 @@ def load_data(force_simulation=False):
     try:
         # Check for simulation data first
         if force_simulation and SIMULATOR_AVAILABLE:
-            st.info("🔄 Running network simulation...")
-            
-            # Run simulation
-            data, stats = run_enhanced_simulation(
-                output_file="simulated_robot_logs.csv",
-                num_normal=30,
-                num_compromised=8,
-                sim_time=180.0
-            )
+            with st.spinner("🔄 Running network simulation..."):
+                # Run simulation
+                data, stats = run_enhanced_simulation(
+                    output_file="simulated_robot_logs.csv",
+                    num_normal=30,
+                    num_compromised=8,
+                    sim_time=180.0
+                )
             
             st.success("✅ Network simulation completed!")
             return data
@@ -84,13 +83,13 @@ def load_data(force_simulation=False):
         
         # If no file found and simulator available, create simulation data
         if SIMULATOR_AVAILABLE:
-            st.info("🔄 No existing data found. Running network simulation...")
-            data, stats = run_enhanced_simulation(
-                output_file="simulated_robot_logs.csv",
-                num_normal=30,
-                num_compromised=8,
-                sim_time=180.0
-            )
+            with st.spinner("🔄 No existing data found. Running network simulation..."):
+                data, stats = run_enhanced_simulation(
+                    output_file="simulated_robot_logs.csv",
+                    num_normal=30,
+                    num_compromised=8,
+                    sim_time=180.0
+                )
             return data
         else:
             # Create sample data for demonstration
@@ -351,84 +350,164 @@ if df is not None and model is not None:
     required_columns = ['packet_size', 'interval']
     if all(col in df.columns for col in required_columns):
         
-        # User input for prediction
-        st.subheader("🔍 Predict Botnet Activity")
+        # User input for prediction with interval-based analysis
+        st.subheader("🔍 Botnet Detection & Analysis")
         
-        # Get reasonable ranges from data
-        min_packet = float(df['packet_size'].min())
-        max_packet = float(df['packet_size'].max())
-        mean_packet = float(df['packet_size'].mean())
+        # Create tabs for different prediction modes
+        pred_tab1, pred_tab2 = st.tabs(["🎯 Single Prediction", "📊 Interval Analysis"])
         
-        min_interval = float(df['interval'].min())
-        max_interval = float(df['interval'].max())
-        mean_interval = float(df['interval'].mean())
+        with pred_tab1:
+            # Get reasonable ranges from data
+            min_packet = float(df['packet_size'].min())
+            max_packet = float(df['packet_size'].max())
+            mean_packet = float(df['packet_size'].mean())
+            
+            min_interval = float(df['interval'].min())
+            max_interval = float(df['interval'].max())
+            mean_interval = float(df['interval'].mean())
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                packet_size = st.number_input(
+                    f"Packet Size (Range: {min_packet:.1f} - {max_packet:.1f})", 
+                    min_value=0.0, 
+                    max_value=max_packet * 2,
+                    value=mean_packet,
+                    step=10.0,
+                    help="Size of the network packet in bytes"
+                )
+            
+            with col2:
+                interval = st.number_input(
+                    f"Interval (Range: {min_interval:.2f} - {max_interval:.2f})", 
+                    min_value=0.0, 
+                    max_value=max_interval * 2,
+                    value=mean_interval,
+                    step=0.1,
+                    help="Time interval between packets in seconds"
+                )
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔮 Predict", type="primary", use_container_width=True):
+                    try:
+                        # Prepare input data
+                        input_data = np.array([[packet_size, interval]])
+                        input_scaled = scaler.transform(input_data)
+                        
+                        # Get prediction and probability
+                        prediction = model.predict(input_scaled)[0]
+                        probability = model.predict_proba(input_scaled)[0]
+                        confidence = max(probability)
+                        
+                        # Display result with styling
+                        if prediction == 1:
+                            st.error(f"🔴 **Botnet Activity Detected!**")
+                            st.error(f"Confidence: {confidence:.1%}")
+                        else:
+                            st.success(f"🟢 **Normal Activity**")
+                            st.success(f"Confidence: {confidence:.1%}")
+                        
+                        # Show additional details
+                        with st.expander("📊 Prediction Details"):
+                            st.write(f"**Prediction:** {'Botnet' if prediction == 1 else 'Normal'}")
+                            st.write(f"**Normal Probability:** {probability[0]:.4f}")
+                            st.write(f"**Botnet Probability:** {probability[1]:.4f}")
+                            st.write(f"**Model Accuracy:** {model_accuracy:.1%}")
+                            st.write(f"**Input values:** Packet Size = {packet_size:.2f}, Interval = {interval:.2f}")
+                            
+                            # Show how this compares to dataset
+                            percentile_packet = (df['packet_size'] < packet_size).mean() * 100
+                            percentile_interval = (df['interval'] < interval).mean() * 100
+                            st.write(f"**Data percentiles:** Packet size = {percentile_packet:.1f}th, Interval = {percentile_interval:.1f}th")
+                            
+                    except Exception as e:
+                        st.error(f"❌ Prediction failed: {e}")
+            
+            with col2:
+                if st.button("🎲 Random Sample", use_container_width=True):
+                    # Select a random sample from the dataset
+                    sample = df.sample(1).iloc[0]
+                    st.session_state.packet_size = float(sample['packet_size'])
+                    st.session_state.interval = float(sample['interval'])
+                    st.rerun()
         
-        col1, col2 = st.columns(2)
-        with col1:
-            packet_size = st.number_input(
-                f"Packet Size (Range: {min_packet:.1f} - {max_packet:.1f})", 
-                min_value=0.0, 
-                max_value=max_packet * 2,
-                value=mean_packet,
-                step=10.0,
-                help="Size of the network packet in bytes"
-            )
-        
-        with col2:
-            interval = st.number_input(
-                f"Interval (Range: {min_interval:.2f} - {max_interval:.2f})", 
-                min_value=0.0, 
-                max_value=max_interval * 2,
-                value=mean_interval,
-                step=0.1,
-                help="Time interval between packets in seconds"
-            )
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🔮 Predict", type="primary", use_container_width=True):
-                try:
-                    # Prepare input data
-                    input_data = np.array([[packet_size, interval]])
-                    input_scaled = scaler.transform(input_data)
+        with pred_tab2:
+            st.write("**Analyze Botnet Activity in Specific Ranges**")
+            
+            # Range selectors
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Packet Size Range**")
+                packet_range = st.slider(
+                    "Select packet size range (bytes)",
+                    min_value=int(min_packet),
+                    max_value=int(max_packet),
+                    value=(int(min_packet), int(max_packet)),
+                    step=50
+                )
+            
+            with col2:
+                st.write("**Interval Range**")
+                interval_range = st.slider(
+                    "Select interval range (seconds)",
+                    min_value=float(min_interval),
+                    max_value=float(max_interval),
+                    value=(float(min_interval), float(max_interval)),
+                    step=0.1,
+                    format="%.2f"
+                )
+            
+            if st.button("🔍 Analyze Range", type="primary", use_container_width=True):
+                # Filter data based on ranges
+                filtered_data = df[
+                    (df['packet_size'] >= packet_range[0]) & 
+                    (df['packet_size'] <= packet_range[1]) &
+                    (df['interval'] >= interval_range[0]) & 
+                    (df['interval'] <= interval_range[1])
+                ]
+                
+                if len(filtered_data) > 0:
+                    # Calculate statistics for the filtered range
+                    total_packets = len(filtered_data)
+                    botnet_packets = filtered_data['is_botnet'].sum()
+                    normal_packets = total_packets - botnet_packets
+                    botnet_ratio = botnet_packets / total_packets if total_packets > 0 else 0
                     
-                    # Get prediction and probability
-                    prediction = model.predict(input_scaled)[0]
-                    probability = model.predict_proba(input_scaled)[0]
-                    confidence = max(probability)
+                    # Display results
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Packets", total_packets)
+                    with col2:
+                        st.metric("Normal Packets", int(normal_packets))
+                    with col3:
+                        st.metric("Botnet Packets", int(botnet_packets))
+                    with col4:
+                        color = "normal" if botnet_ratio < 0.3 else "inverse"
+                        st.metric("Botnet Ratio", f"{botnet_ratio:.1%}", delta_color=color)
                     
-                    # Display result with styling
-                    if prediction == 1:
-                        st.error(f"🔴 **Botnet Activity Detected!**")
-                        st.error(f"Confidence: {confidence:.1%}")
+                    # Risk assessment
+                    if botnet_ratio > 0.7:
+                        st.error("🚨 **HIGH RISK**: This range shows predominantly botnet activity!")
+                    elif botnet_ratio > 0.3:
+                        st.warning("⚠️ **MEDIUM RISK**: Elevated botnet activity in this range.")
                     else:
-                        st.success(f"🟢 **Normal Activity**")
-                        st.success(f"Confidence: {confidence:.1%}")
+                        st.success("✅ **LOW RISK**: Range appears mostly normal.")
                     
-                    # Show additional details
-                    with st.expander("📊 Prediction Details"):
-                        st.write(f"**Prediction:** {'Botnet' if prediction == 1 else 'Normal'}")
-                        st.write(f"**Normal Probability:** {probability[0]:.4f}")
-                        st.write(f"**Botnet Probability:** {probability[1]:.4f}")
-                        st.write(f"**Model Accuracy:** {model_accuracy:.1%}")
-                        st.write(f"**Input values:** Packet Size = {packet_size:.2f}, Interval = {interval:.2f}")
-                        
-                        # Show how this compares to dataset
-                        percentile_packet = (df['packet_size'] < packet_size).mean() * 100
-                        percentile_interval = (df['interval'] < interval).mean() * 100
-                        st.write(f"**Data percentiles:** Packet size = {percentile_packet:.1f}th, Interval = {percentile_interval:.1f}th")
-                        
-                except Exception as e:
-                    st.error(f"❌ Prediction failed: {e}")
-        
-        with col2:
-            if st.button("🎲 Random Sample", use_container_width=True):
-                # Select a random sample from the dataset
-                sample = df.sample(1).iloc[0]
-                st.session_state.packet_size = float(sample['packet_size'])
-                st.session_state.interval = float(sample['interval'])
-                st.rerun()
+                    # Visualization of the filtered data
+                    fig = px.scatter(
+                        filtered_data, x='packet_size', y='interval', color='is_botnet',
+                        title=f"Activity in Selected Range (Packets: {packet_range[0]}-{packet_range[1]}, Intervals: {interval_range[0]:.2f}-{interval_range[1]:.2f})",
+                        labels={'is_botnet': 'Traffic Type', 'packet_size': 'Packet Size (bytes)', 'interval': 'Interval (seconds)'},
+                        color_discrete_map={0: 'green', 1: 'red'}
+                    )
+                    fig.update_traces(marker=dict(size=8, opacity=0.7))
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                else:
+                    st.warning("⚠️ No data found in the selected ranges. Try adjusting the ranges.")
         
         # Timeline visualization for simulation data
         if 'timestamp' in df.columns and len(df) > 0:
@@ -597,40 +676,185 @@ if df is not None and model is not None:
             with tab4:
                 st.write("**Advanced Network Analysis**")
                 
-                # Source analysis (if available)
+                # Packet size variation analysis
                 if 'source_id' in df.columns:
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.subheader("🤖 Robot Activity Analysis")
-                        robot_stats = df.groupby(['source_id', 'is_botnet']).size().unstack(fill_value=0)
-                        robot_stats['total'] = robot_stats.sum(axis=1)
-                        robot_stats['botnet_ratio'] = robot_stats.get(1, 0) / robot_stats['total']
+                        st.subheader("📊 Packet Size Variations by Source")
                         
-                        # Show top botnet sources
-                        top_botnet = robot_stats.nlargest(10, 'botnet_ratio')
+                        # Calculate standard deviation and mean for each source
+                        source_stats = df.groupby('source_id').agg({
+                            'packet_size': ['mean', 'std', 'count'],
+                            'is_botnet': 'mean'
+                        }).round(2)
                         
-                        fig = px.bar(
-                            x=top_botnet.index,
-                            y=top_botnet['botnet_ratio'],
-                            title="Top Sources by Botnet Activity Ratio",
-                            labels={'x': 'Robot ID', 'y': 'Botnet Ratio'}
-                        )
-                        fig.update_xaxes(tickangle=45)
-                        st.plotly_chart(fig, use_container_width=True)
+                        # Flatten column names
+                        source_stats.columns = ['avg_packet_size', 'packet_size_std', 'packet_count', 'botnet_ratio']
+                        source_stats = source_stats.fillna(0)
+                        
+                        # Get top sources by variation (std deviation)
+                        top_variable = source_stats.nlargest(10, 'packet_size_std')
+                        
+                        if len(top_variable) > 0:
+                            fig = px.bar(
+                                x=top_variable.index,
+                                y=top_variable['packet_size_std'],
+                                title="Sources with Highest Packet Size Variation",
+                                labels={'x': 'Source ID', 'y': 'Standard Deviation (bytes)'},
+                                color=top_variable['botnet_ratio'],
+                                color_continuous_scale='RdYlGn_r'
+                            )
+                            fig.update_xaxes(tickangle=45)
+                            fig.update_layout(height=400)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Not enough source data for variation analysis")
                     
                     with col2:
-                        st.subheader("📊 Traffic Volume by Source")
-                        source_counts = df['source_id'].value_counts().head(10)
+                        st.subheader("⏱️ Interval Variations by Source")
                         
-                        fig = px.bar(
-                            x=source_counts.index,
-                            y=source_counts.values,
-                            title="Top 10 Most Active Sources",
-                            labels={'x': 'Robot ID', 'y': 'Packet Count'}
+                        # Calculate interval variations
+                        interval_stats = df.groupby('source_id').agg({
+                            'interval': ['mean', 'std', 'count'],
+                            'is_botnet': 'mean'
+                        }).round(3)
+                        
+                        # Flatten column names
+                        interval_stats.columns = ['avg_interval', 'interval_std', 'packet_count', 'botnet_ratio']
+                        interval_stats = interval_stats.fillna(0)
+                        
+                        # Get top sources by interval variation
+                        top_interval_var = interval_stats.nlargest(10, 'interval_std')
+                        
+                        if len(top_interval_var) > 0:
+                            fig = px.bar(
+                                x=top_interval_var.index,
+                                y=top_interval_var['interval_std'],
+                                title="Sources with Highest Interval Variation",
+                                labels={'x': 'Source ID', 'y': 'Standard Deviation (seconds)'},
+                                color=top_interval_var['botnet_ratio'],
+                                color_continuous_scale='RdYlGn_r'
+                            )
+                            fig.update_xaxes(tickangle=45)
+                            fig.update_layout(height=400)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Not enough source data for interval variation analysis")
+                
+                # Overall variation patterns
+                st.subheader("📈 Traffic Pattern Variations")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Packet size variance comparison
+                    normal_var = df[df['is_botnet'] == 0]['packet_size'].var()
+                    botnet_var = df[df['is_botnet'] == 1]['packet_size'].var()
+                    
+                    variance_data = pd.DataFrame({
+                        'Traffic_Type': ['Normal', 'Botnet'],
+                        'Packet_Size_Variance': [normal_var, botnet_var]
+                    })
+                    
+                    fig = px.bar(
+                        variance_data,
+                        x='Traffic_Type',
+                        y='Packet_Size_Variance',
+                        title="Packet Size Variance: Normal vs Botnet",
+                        color='Traffic_Type',
+                        color_discrete_map={'Normal': 'green', 'Botnet': 'red'}
+                    )
+                    fig.update_layout(showlegend=False, height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    # Interval variance comparison
+                    normal_interval_var = df[df['is_botnet'] == 0]['interval'].var()
+                    botnet_interval_var = df[df['is_botnet'] == 1]['interval'].var()
+                    
+                    interval_variance_data = pd.DataFrame({
+                        'Traffic_Type': ['Normal', 'Botnet'],
+                        'Interval_Variance': [normal_interval_var, botnet_interval_var]
+                    })
+                    
+                    fig = px.bar(
+                        interval_variance_data,
+                        x='Traffic_Type',
+                        y='Interval_Variance',
+                        title="Interval Variance: Normal vs Botnet",
+                        color='Traffic_Type',
+                        color_discrete_map={'Normal': 'green', 'Botnet': 'red'}
+                    )
+                    fig.update_layout(showlegend=False, height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Range-based analysis
+                st.subheader("🎯 Packet Size & Interval Range Analysis")
+                
+                # Create range-based heatmap
+                try:
+                    # Create bins for packet size and interval
+                    packet_bins = pd.cut(df['packet_size'], bins=10, precision=0)
+                    interval_bins = pd.cut(df['interval'], bins=10, precision=2)
+                    
+                    # Create pivot table for heatmap
+                    heatmap_data = df.groupby([packet_bins, interval_bins])['is_botnet'].agg(['count', 'mean']).fillna(0)
+                    
+                    if len(heatmap_data) > 0:
+                        # Create heatmap of botnet ratio
+                        pivot_botnet_ratio = heatmap_data['mean'].unstack(fill_value=0)
+                        
+                        fig = px.imshow(
+                            pivot_botnet_ratio,
+                            labels=dict(x="Interval Range", y="Packet Size Range", color="Botnet Ratio"),
+                            title="Botnet Activity Heatmap by Packet Size and Interval Ranges",
+                            color_continuous_scale="RdYlGn_r"
                         )
-                        fig.update_xaxes(tickangle=45)
+                        fig.update_layout(height=500)
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Show interpretation
+                        st.info("""
+                        **Heatmap Interpretation:**
+                        - 🔴 **Red areas**: High botnet activity concentration
+                        - 🟡 **Yellow areas**: Moderate botnet activity  
+                        - 🟢 **Green areas**: Low/no botnet activity
+                        - Use this to identify suspicious packet size and interval combinations
+                        """)
+                    else:
+                        st.warning("Not enough data for range-based heatmap analysis")
+                except Exception as e:
+                    st.warning(f"Could not create heatmap analysis: {str(e)}")
+                
+                # Statistical summary of variations
+                st.subheader("📊 Variation Statistics Summary")
+                
+                variation_summary = pd.DataFrame({
+                    'Metric': [
+                        'Packet Size - Normal (Std Dev)',
+                        'Packet Size - Botnet (Std Dev)', 
+                        'Interval - Normal (Std Dev)',
+                        'Interval - Botnet (Std Dev)',
+                        'Packet Size - Normal (Range)',
+                        'Packet Size - Botnet (Range)',
+                        'Interval - Normal (Range)', 
+                        'Interval - Botnet (Range)'
+                    ],
+                    'Value': [
+                        df[df['is_botnet'] == 0]['packet_size'].std(),
+                        df[df['is_botnet'] == 1]['packet_size'].std(),
+                        df[df['is_botnet'] == 0]['interval'].std(),
+                        df[df['is_botnet'] == 1]['interval'].std(),
+                        df[df['is_botnet'] == 0]['packet_size'].max() - df[df['is_botnet'] == 0]['packet_size'].min(),
+                        df[df['is_botnet'] == 1]['packet_size'].max() - df[df['is_botnet'] == 1]['packet_size'].min(),
+                        df[df['is_botnet'] == 0]['interval'].max() - df[df['is_botnet'] == 0]['interval'].min(),
+                        df[df['is_botnet'] == 1]['interval'].max() - df[df['is_botnet'] == 1]['interval'].min()
+                    ]
+                })
+                
+                variation_summary['Value'] = variation_summary['Value'].round(3)
+                st.dataframe(variation_summary, use_container_width=True)
                 
                 # Temporal analysis (if timestamp available)
                 if 'timestamp' in df.columns and len(df) > 0:
