@@ -11,7 +11,6 @@ import os
 import time
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 
 # Import the simulator
 try:
@@ -509,49 +508,36 @@ if df is not None and model is not None:
                 else:
                     st.warning("⚠️ No data found in the selected ranges. Try adjusting the ranges.")
         
-        # Timeline visualization for simulation data
+        # Timeline visualization for simulation data (simplified)
         if 'timestamp' in df.columns and len(df) > 0:
-            st.subheader("⏱️ Network Traffic Timeline")
+            st.subheader("⏱️ Packet Size Over Time")
             
-            # Create interactive timeline chart
-            fig = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=("Packet Size Over Time", "Traffic Type Timeline"),
-                vertical_spacing=0.1
-            )
-            
-            # Packet size timeline
+            # Create single timeline chart for packet sizes only
             normal_data = df[df['is_botnet'] == 0]
             botnet_data = df[df['is_botnet'] == 1]
+            
+            fig = go.Figure()
             
             if len(normal_data) > 0:
                 fig.add_trace(
                     go.Scatter(x=normal_data['timestamp'], y=normal_data['packet_size'],
                               mode='markers', name='Normal Traffic', 
-                              marker=dict(color='green', size=4, opacity=0.6)),
-                    row=1, col=1
+                              marker=dict(color='green', size=4, opacity=0.6))
                 )
             
             if len(botnet_data) > 0:
                 fig.add_trace(
                     go.Scatter(x=botnet_data['timestamp'], y=botnet_data['packet_size'],
                               mode='markers', name='Botnet Traffic', 
-                              marker=dict(color='red', size=4, opacity=0.8)),
-                    row=1, col=1
+                              marker=dict(color='red', size=4, opacity=0.8))
                 )
             
-            # Traffic type timeline (as bars)
-            fig.add_trace(
-                go.Scatter(x=df['timestamp'], y=df['is_botnet'],
-                          mode='markers', name='Traffic Classification',
-                          marker=dict(color=df['is_botnet'], colorscale='RdYlGn_r', size=3)),
-                row=2, col=1
+            fig.update_layout(
+                height=400, 
+                title="Packet Size Evolution During Simulation",
+                xaxis_title="Time (seconds)",
+                yaxis_title="Packet Size (bytes)"
             )
-            
-            fig.update_layout(height=600, title_text="Real-time Network Traffic Analysis")
-            fig.update_xaxes(title_text="Time (seconds)", row=2, col=1)
-            fig.update_yaxes(title_text="Packet Size (bytes)", row=1, col=1)
-            fig.update_yaxes(title_text="Traffic Type", row=2, col=1)
             
             st.plotly_chart(fig, use_container_width=True)
         
