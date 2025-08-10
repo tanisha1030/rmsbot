@@ -1,134 +1,152 @@
-# botnet_detection_dl.py
-import pandas as pd
+import os
+import time
+import random
 import numpy as np
-from sklearn.model_selection import StratifiedShuffleSplit
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 from sklearn.utils import class_weight
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import joblib
 
-# Set random seeds for reproducibility
-np.random.seed(42)
-tf.random.set_seed(42)
+# --------------------
+# Step 1: Load or Generate Dataset
+# --------------------
+def create_sample_data(n_samples=1000):
+    np.random.seed(42)
+    normal_packet_sizes = np.random.normal(500, 150, n_samples // 2)
+    normal_intervals = np.random.exponential(2.0, n_samples // 2)
+    botnet_packet_sizes = np.random.normal(800, 100, n_samples // 2)
+    botnet_intervals = np.random.exponential(0.5, n_samples // 2)
 
-# Load data
-df = pd.read_csv("/content/synthetic_robot_logs.csv")
+    packet_sizes = np.abs(np.concatenate([normal_packet_sizes, botnet_packet_sizes]))
+    intervals = np.abs(np.concatenate([normal_intervals, botnet_intervals]))
+    labels = np.concatenate([np.zeros(n_samples // 2), np.ones(n_samples // 2)])
 
-# Basic data exploration
-print(f"Dataset shape: {df.shape}")
-print(f"Class distribution:\n{df['is_botnet'].value_counts()}")
-print(f"Missing values: {df.isnull().sum().sum()}")
+    df = pd.DataFrame({
+        'packet_size': packet_sizes,
+        'interval': intervals,
+        'is_botnet': labels.astype(int)
+    })
+    return df.sample(frac=1).reset_index(drop=True)
 
-# Features and labels
-X = df[['packet_size', 'interval']].values
-y = df['is_botnet'].values
+def load_data():
+    file_path = "synthetic_robot_logs.csv"
+    if os.path.exists(file_path):
+        print(f"[INFO] Loading dataset from {file_path}")
+        return pd.read_csv(file_path)
+    else:
+        print("[WARNING] Dataset not found. Generating synthetic data...")
+        return create_sample_data()
 
-# Normalize features
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+# --------------------
+# Step 2: Train Model
+# --------------------
+def train_model(df):
+    X = df[['packet_size', 'interval']].values
+    y = df['is_botnet'].values
 
-# Stratified train-test split
-sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-for train_idx, test_idx in sss.split(X_scaled, y):
-    X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
-    y_train, y_test = y[train_idx], y[test_idx]
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-print(f"Training set shape: {X_train.shape}")
-print(f"Test set shape: {X_test.shape}")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled, y, test_size=0.2, random_state=42, stratify=y
+    )
 
-# Compute class weights to handle imbalance
-weights = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
-class_weights = {i: weights[i] for i in range(len(weights))}
-print(f"Class weights: {class_weights}")
+    weights = class_weight.compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
+    class_weights = {i: weights[i] for i in range(len(weights))}
 
-# Define improved model with regularization
-model = Sequential([
-    Input(shape=(X_train.shape[1],)),
-    Dense(128, activation='relu'),
-    BatchNormalization(),
-    Dropout(0.3),
-    Dense(64, activation='relu'),
-    BatchNormalization(),
-    Dropout(0.3),
-    Dense(32, activation='relu'),
-    Dropout(0.2),
-    Dense(1, activation='sigmoid')
-])
+    model = Sequential([
+        Input(shape=(X_train.shape[1],)),
+        Dense(128, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.3),
+        Dense(64, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.3),
+        Dense(32, activation='relu'),
+        Dropout(0.2),
+        Dense(1, activation='sigmoid')
+    ])
 
-# Compile model with better optimizer settings
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-    loss='binary_crossentropy',
-    metrics=['accuracy', 'precision', 'recall']
-)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss='binary_crossentropy',
+        metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
+    )
 
-# Print model summary
-model.summary()
+    callbacks = [
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
+    ]
 
-# Define callbacks for better training
-callbacks = [
-    EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
-    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
-]
+    print("[INFO] Training model...")
+    model.fit(
+        X_train, y_train,
+        epochs=50,
+        batch_size=32,
+        validation_split=0.2,
+        class_weight=class_weights,
+        callbacks=callbacks,
+        verbose=1
+    )
 
-# Train model with callbacks and increased epochs
-history = model.fit(
-    X_train, y_train,
-    epochs=100,
-    batch_size=32,
-    validation_split=0.2,
-    class_weight=class_weights,
-    callbacks=callbacks,
-    verbose=1
-)
+    y_pred_probs = model.predict(X_test)
+    y_pred = (y_pred_probs > 0.5).astype(int)
 
-# Predict with optimal threshold
-y_pred_probs = model.predict(X_test)
-y_pred = (y_pred_probs > 0.5).astype(int)
+    print("\n[RESULT] Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+    print("\n[RESULT] Classification Report:\n", classification_report(y_test, y_pred))
+    print(f"[RESULT] ROC-AUC: {roc_auc_score(y_test, y_pred_probs):.4f}")
 
-# Enhanced evaluation
-print("\nConfusion Matrix:")
-cm = confusion_matrix(y_test, y_pred)
-print(cm)
+    # Save model and scaler
+    model.save("botnet_detection_model.h5")
+    joblib.dump(scaler, "scaler.pkl")
+    print("[INFO] Model and scaler saved.")
 
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred))
+    return model, scaler
 
-print(f"ROC-AUC Score: {roc_auc_score(y_test, y_pred_probs):.4f}")
+# --------------------
+# Step 3: Simulation
+# --------------------
+def generate_packet():
+    """Simulate a packet with random features"""
+    is_botnet = np.random.choice([0, 1], p=[0.7, 0.3])  # 70% normal, 30% botnet
+    if is_botnet == 0:
+        packet_size = np.random.normal(500, 150)
+        interval = np.random.exponential(2.0)
+    else:
+        packet_size = np.random.normal(800, 100)
+        interval = np.random.exponential(0.5)
+    return abs(packet_size), abs(interval)
 
-# Additional metrics
-from sklearn.metrics import f1_score, precision_score, recall_score
-print(f"F1 Score: {f1_score(y_test, y_pred):.4f}")
-print(f"Precision: {precision_score(y_test, y_pred):.4f}")
-print(f"Recall: {recall_score(y_test, y_pred):.4f}")
+def run_simulation(model, scaler, ticks=20, delay=1):
+    print("\n[SIMULATION] Starting live traffic simulation...\n")
+    for t in range(ticks):
+        packet_size, interval = generate_packet()
+        X_new = scaler.transform([[packet_size, interval]])
+        pred_prob = model.predict(X_new)[0][0]
+        pred_class = int(pred_prob > 0.5)
 
-# Plot training history
-import matplotlib.pyplot as plt
+        status = "BOTNET ⚠️" if pred_class == 1 else "NORMAL ✅"
+        print(f"Tick {t+1:02d}: PacketSize={packet_size:.2f}, Interval={interval:.2f} -> {status} (Conf={pred_prob:.2%})")
 
-plt.figure(figsize=(12, 4))
+        time.sleep(delay)
 
-plt.subplot(1, 2, 1)
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('Model Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
+# --------------------
+# Main Execution
+# --------------------
+if __name__ == "__main__":
+    df = load_data()
 
-plt.subplot(1, 2, 2)
-plt.plot(history.history['accuracy'], label='Training Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title('Model Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend()
+    if os.path.exists("botnet_detection_model.h5") and os.path.exists("scaler.pkl"):
+        print("[INFO] Loading existing model...")
+        model = load_model("botnet_detection_model.h5")
+        scaler = joblib.load("scaler.pkl")
+    else:
+        model, scaler = train_model(df)
 
-plt.tight_layout()
-plt.show()
-
-# Save model
-model.save('botnet_detection_model.h5')
-print("\nModel saved as 'botnet_detection_model.h5'")
+    run_simulation(model, scaler, ticks=30, delay=1)
