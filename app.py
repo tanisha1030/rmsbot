@@ -59,10 +59,10 @@ def load_data(force_simulation=False):
                     num_compromised=8,
                     sim_time=180.0
                 )
-            
+                
             st.success("✅ Network simulation completed!")
             return data
-        
+            
         # Try different possible file paths
         possible_paths = [
             "simulated_robot_logs.csv",
@@ -94,7 +94,7 @@ def load_data(force_simulation=False):
             # Create sample data for demonstration
             st.warning("⚠️ Dataset file not found. Using sample data for demonstration.")
             return create_sample_data()
-        
+            
     except Exception as e:
         st.error(f"❌ Error loading dataset: {e}")
         return create_sample_data()
@@ -189,7 +189,7 @@ def run_realtime_simulation():
                 if len(df_current) > 10:
                     fig = px.scatter(
                         df_current, x='packet_size', y='interval', 
-                        color='is_botnet', 
+                        color='is_botnet',
                         title="Real-time Network Traffic",
                         labels={'is_botnet': 'Traffic Type'},
                         color_discrete_map={0: 'green', 1: 'red'}
@@ -242,7 +242,7 @@ def train_model():
             st.info(f"📊 Training Accuracy: {train_accuracy:.3f} | Test Accuracy: {test_accuracy:.3f}")
             
             return model, scaler, test_accuracy
-        
+            
         else:
             st.error("❌ Unable to train model: Invalid dataset")
             return None, None, 0.0
@@ -521,15 +521,15 @@ if df is not None and model is not None:
             if len(normal_data) > 0:
                 fig.add_trace(
                     go.Scatter(x=normal_data['timestamp'], y=normal_data['packet_size'],
-                              mode='markers', name='Normal Traffic', 
-                              marker=dict(color='green', size=4, opacity=0.6))
+                              mode='markers', name='Normal Traffic',
+                               marker=dict(color='green', size=4, opacity=0.6))
                 )
             
             if len(botnet_data) > 0:
                 fig.add_trace(
                     go.Scatter(x=botnet_data['timestamp'], y=botnet_data['packet_size'],
-                              mode='markers', name='Botnet Traffic', 
-                              marker=dict(color='red', size=4, opacity=0.8))
+                              mode='markers', name='Botnet Traffic',
+                               marker=dict(color='red', size=4, opacity=0.8))
                 )
             
             fig.update_layout(
@@ -603,15 +603,15 @@ if df is not None and model is not None:
                 
                 # Box plots
                 try:
-                    df_melted = df.melt(id_vars=['is_botnet'], value_vars=['packet_size'], 
-                                       var_name='feature', value_name='value')
+                    df_melted = df.melt(id_vars=['is_botnet'], value_vars=['packet_size'],
+                                        var_name='feature', value_name='value')
                     sns.boxplot(data=df_melted, x='is_botnet', y='value', ax=axes[1, 0])
                     axes[1, 0].set_xlabel("Activity Type (0=Normal, 1=Botnet)")
                     axes[1, 0].set_ylabel("Packet Size")
                     axes[1, 0].set_title("Packet Size by Activity Type")
                     
-                    df_melted2 = df.melt(id_vars=['is_botnet'], value_vars=['interval'], 
-                                        var_name='feature', value_name='value')
+                    df_melted2 = df.melt(id_vars=['is_botnet'], value_vars=['interval'],
+                                         var_name='feature', value_name='value')
                     sns.boxplot(data=df_melted2, x='is_botnet', y='value', ax=axes[1, 1])
                     axes[1, 1].set_xlabel("Activity Type (0=Normal, 1=Botnet)")
                     axes[1, 1].set_ylabel("Interval")
@@ -775,43 +775,194 @@ if df is not None and model is not None:
                     fig.update_layout(showlegend=False, height=400)
                     st.plotly_chart(fig, use_container_width=True)
                 
-                # Range-based analysis
+                # FIXED: Range-based analysis
                 st.subheader("🎯 Packet Size & Interval Range Analysis")
                 
                 # Create range-based heatmap
                 try:
-                    # Create bins for packet size and interval
+                    # Create bins for packet size and interval with labels
                     packet_bins = pd.cut(df['packet_size'], bins=10, precision=0)
                     interval_bins = pd.cut(df['interval'], bins=10, precision=2)
                     
-                    # Create pivot table for heatmap
-                    heatmap_data = df.groupby([packet_bins, interval_bins])['is_botnet'].agg(['count', 'mean']).fillna(0)
+                    # Convert interval objects to string labels for JSON serialization
+                    packet_labels = [str(interval) for interval in packet_bins.cat.categories]
+                    interval_labels = [str(interval) for interval in interval_bins.cat.categories]
                     
-                    if len(heatmap_data) > 0:
+                    # Create a copy of the dataframe with string bin labels
+                    df_binned = df.copy()
+                    df_binned['packet_bin'] = packet_bins.astype(str)
+                    df_binned['interval_bin'] = interval_bins.astype(str)
+                    
+                    # Create pivot table for heatmap
+                    heatmap_data = df_binned.groupby(['packet_bin', 'interval_bin'])['is_botnet'].agg(['count', 'mean']).fillna(0)
+                    
+                    if len(heatmap_data) > 0 and heatmap_data['count'].sum() > 0:
                         # Create heatmap of botnet ratio
                         pivot_botnet_ratio = heatmap_data['mean'].unstack(fill_value=0)
                         
-                        fig = px.imshow(
-                            pivot_botnet_ratio,
-                            labels=dict(x="Interval Range", y="Packet Size Range", color="Botnet Ratio"),
-                            title="Botnet Activity Heatmap by Packet Size and Interval Ranges",
-                            color_continuous_scale="RdYlGn_r"
-                        )
-                        fig.update_layout(height=500)
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Show interpretation
-                        st.info("""
-                        **Heatmap Interpretation:**
-                        - 🔴 **Red areas**: High botnet activity concentration
-                        - 🟡 **Yellow areas**: Moderate botnet activity  
-                        - 🟢 **Green areas**: Low/no botnet activity
-                        - Use this to identify suspicious packet size and interval combinations
-                        """)
+                        # Only proceed if we have data
+                        if not pivot_botnet_ratio.empty:
+                            fig = px.imshow(
+                                pivot_botnet_ratio.values,
+                                x=pivot_botnet_ratio.columns,
+                                y=pivot_botnet_ratio.index,
+                                labels=dict(x="Interval Range", y="Packet Size Range", color="Botnet Ratio"),
+                                title="Botnet Activity Heatmap by Packet Size and Interval Ranges",
+                                color_continuous_scale="RdYlGn_r",
+                                aspect="auto"
+                            )
+                            
+                            # Improve layout
+                            fig.update_layout(
+                                height=500,
+                                xaxis={'side': 'bottom'},
+                                xaxis_tickangle=-45,
+                                yaxis_tickangle=0
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Show interpretation
+                            st.info("""
+                            **Heatmap Interpretation:**
+                            - 🔴 **Red areas**: High botnet activity concentration
+                            - 🟡 **Yellow areas**: Moderate botnet activity  
+                            - 🟢 **Green areas**: Low/no botnet activity
+                            - Use this to identify suspicious packet size and interval combinations
+                            """)
+                        else:
+                            st.warning("Not enough varied data for range-based heatmap analysis")
                     else:
-                        st.warning("Not enough data for range-based heatmap analysis")
+                        st.warning("Not enough data points for range-based heatmap analysis")
+                    
+                    # Alternative analysis: Simple range statistics
+                    st.subheader("📊 Range-based Statistics Table")
+                    
+                    # Create quartile-based analysis as backup
+                    packet_quartiles = df['packet_size'].quantile([0, 0.25, 0.5, 0.75, 1.0])
+                    interval_quartiles = df['interval'].quantile([0, 0.25, 0.5, 0.75, 1.0])
+                    
+                    # Create range analysis table
+                    range_analysis = []
+                    
+                    for i in range(4):  # 4 quartiles
+                        packet_min = packet_quartiles.iloc[i]
+                        packet_max = packet_quartiles.iloc[i + 1]
+                        interval_min = interval_quartiles.iloc[i]
+                        interval_max = interval_quartiles.iloc[i + 1]
+                        
+                        # Filter data for this quartile combination
+                        quartile_data = df[
+                            (df['packet_size'] >= packet_min) & (df['packet_size'] <= packet_max) &
+                            (df['interval'] >= interval_min) & (df['interval'] <= interval_max)
+                        ]
+                        
+                        if len(quartile_data) > 0:
+                            botnet_ratio = quartile_data['is_botnet'].mean()
+                            total_packets = len(quartile_data)
+                            
+                            range_analysis.append({
+                                'Quartile': f'Q{i+1}',
+                                'Packet Size Range': f'{packet_min:.0f} - {packet_max:.0f}',
+                                'Interval Range': f'{interval_min:.3f} - {interval_max:.3f}',
+                                'Total Packets': total_packets,
+                                'Botnet Ratio': f'{botnet_ratio:.2%}',
+                                'Risk Level': 'High' if botnet_ratio > 0.7 else 'Medium' if botnet_ratio > 0.3 else 'Low'
+                            })
+                    
+                    if range_analysis:
+                        range_df = pd.DataFrame(range_analysis)
+                        
+                        # Color-code the risk levels
+                        def highlight_risk(val):
+                            if val == 'High':
+                                return 'background-color: #ffcccc'
+                            elif val == 'Medium':
+                                return 'background-color: #ffffcc'
+                            else:
+                                return 'background-color: #ccffcc'
+                        
+                        styled_df = range_df.style.applymap(highlight_risk, subset=['Risk Level'])
+                        st.dataframe(styled_df, use_container_width=True)
+                    
+                    # Enhanced scatter plot with quartile boundaries
+                    st.subheader("🎯 Enhanced Scatter Plot with Range Boundaries")
+                    
+                    fig = px.scatter(
+                        df, x='packet_size', y='interval', color='is_botnet',
+                        title="Network Traffic with Quartile Boundaries",
+                        labels={'is_botnet': 'Traffic Type', 'packet_size': 'Packet Size (bytes)', 'interval': 'Interval (seconds)'},
+                        color_discrete_map={0: 'green', 1: 'red'},
+                        hover_data=['timestamp'] if 'timestamp' in df.columns else None
+                    )
+                    
+                    # Add quartile lines
+                    for q in packet_quartiles[1:-1]:  # Skip min and max
+                        fig.add_vline(x=q, line_dash="dash", line_color="gray", opacity=0.5)
+                    
+                    for q in interval_quartiles[1:-1]:  # Skip min and max
+                        fig.add_hline(y=q, line_dash="dash", line_color="gray", opacity=0.5)
+                    
+                    fig.update_traces(marker=dict(size=6, opacity=0.7))
+                    fig.update_layout(height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+
                 except Exception as e:
-                    st.warning(f"Could not create heatmap analysis: {str(e)}")
+                    st.error(f"Could not create range analysis: {str(e)}")
+                    st.info("Falling back to basic statistical analysis...")
+                    
+                    # Fallback: Simple statistical breakdown
+                    st.subheader("📊 Basic Statistical Analysis")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Packet Size Analysis**")
+                        normal_packets = df[df['is_botnet'] == 0]['packet_size']
+                        botnet_packets = df[df['is_botnet'] == 1]['packet_size']
+                        
+                        packet_stats = pd.DataFrame({
+                            'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max'],
+                            'Normal Traffic': [
+                                normal_packets.mean(),
+                                normal_packets.median(),
+                                normal_packets.std(),
+                                normal_packets.min(),
+                                normal_packets.max()
+                            ],
+                            'Botnet Traffic': [
+                                botnet_packets.mean(),
+                                botnet_packets.median(),
+                                botnet_packets.std(),
+                                botnet_packets.min(),
+                                botnet_packets.max()
+                            ]
+                        })
+                        st.dataframe(packet_stats.round(2))
+                    
+                    with col2:
+                        st.write("**Interval Analysis**")
+                        normal_intervals = df[df['is_botnet'] == 0]['interval']
+                        botnet_intervals = df[df['is_botnet'] == 1]['interval']
+                        
+                        interval_stats = pd.DataFrame({
+                            'Metric': ['Mean', 'Median', 'Std Dev', 'Min', 'Max'],
+                            'Normal Traffic': [
+                                normal_intervals.mean(),
+                                normal_intervals.median(),
+                                normal_intervals.std(),
+                                normal_intervals.min(),
+                                normal_intervals.max()
+                            ],
+                            'Botnet Traffic': [
+                                botnet_intervals.mean(),
+                                botnet_intervals.median(),
+                                botnet_intervals.std(),
+                                botnet_intervals.min(),
+                                botnet_intervals.max()
+                            ]
+                        })
+                        st.dataframe(interval_stats.round(3))
                 
                 # Statistical summary of variations
                 st.subheader("📊 Variation Statistics Summary")
