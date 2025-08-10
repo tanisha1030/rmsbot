@@ -633,36 +633,60 @@ if df is not None and model is not None:
                         st.plotly_chart(fig, use_container_width=True)
                 
                 # Temporal analysis (if timestamp available)
-                if 'timestamp' in df.columns:
+                if 'timestamp' in df.columns and len(df) > 0:
                     st.subheader("🕒 Temporal Pattern Analysis")
                     
-                    # Binned time analysis
-                    df_temp = df.copy()
-                    df_temp['time_bin'] = pd.cut(df_temp['timestamp'], bins=20)
-                    time_analysis = df_temp.groupby(['time_bin', 'is_botnet']).size().unstack(fill_value=0)
-                    
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=range(len(time_analysis)),
-                        y=time_analysis.get(0, []),
-                        mode='lines+markers',
-                        name='Normal Traffic',
-                        line=dict(color='green')
-                    ))
-                    fig.add_trace(go.Scatter(
-                        x=range(len(time_analysis)),
-                        y=time_analysis.get(1, []),
-                        mode='lines+markers',
-                        name='Botnet Traffic',
-                        line=dict(color='red')
-                    ))
-                    
-                    fig.update_layout(
-                        title="Traffic Patterns Over Time",
-                        xaxis_title="Time Bins",
-                        yaxis_title="Packet Count"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    try:
+                        # Binned time analysis
+                        df_temp = df.copy()
+                        
+                        # Ensure we have valid timestamp data
+                        if df_temp['timestamp'].nunique() > 1:
+                            df_temp['time_bin'] = pd.cut(df_temp['timestamp'], bins=min(20, df_temp['timestamp'].nunique()))
+                            time_analysis = df_temp.groupby(['time_bin', 'is_botnet']).size().unstack(fill_value=0)
+                            
+                            if len(time_analysis) > 0:
+                                # Create time bin labels for x-axis
+                                time_labels = [f"Bin {i+1}" for i in range(len(time_analysis))]
+                                
+                                fig = go.Figure()
+                                
+                                # Add normal traffic trace
+                                if 0 in time_analysis.columns:
+                                    normal_data = time_analysis[0].values
+                                    fig.add_trace(go.Scatter(
+                                        x=time_labels,
+                                        y=normal_data,
+                                        mode='lines+markers',
+                                        name='Normal Traffic',
+                                        line=dict(color='green')
+                                    ))
+                                
+                                # Add botnet traffic trace  
+                                if 1 in time_analysis.columns:
+                                    botnet_data = time_analysis[1].values
+                                    fig.add_trace(go.Scatter(
+                                        x=time_labels,
+                                        y=botnet_data,
+                                        mode='lines+markers',
+                                        name='Botnet Traffic',
+                                        line=dict(color='red')
+                                    ))
+                                
+                                fig.update_layout(
+                                    title="Traffic Patterns Over Time",
+                                    xaxis_title="Time Bins",
+                                    yaxis_title="Packet Count",
+                                    height=400
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.warning("Not enough data for temporal analysis")
+                        else:
+                            st.info("Insufficient timestamp variation for temporal analysis")
+                    except Exception as e:
+                        st.warning(f"Could not create temporal analysis: {str(e)}")
+                        st.info("This feature requires diverse timestamp data from simulation")
                 
                 # Correlation analysis
                 st.subheader("🔗 Feature Correlation Analysis")
@@ -781,35 +805,47 @@ Random Forest Classifier:
         if 'timestamp' in df.columns and len(df) > 100:
             st.subheader("Model Performance Over Time")
             
-            # Split data into time windows and evaluate
-            df_sorted = df.sort_values('timestamp')
-            window_size = len(df_sorted) // 10
-            
-            performance_over_time = []
-            for i in range(0, len(df_sorted) - window_size, window_size // 2):
-                window_data = df_sorted.iloc[i:i+window_size]
-                if len(window_data) > 10 and window_data['is_botnet'].nunique() > 1:
-                    X_window = window_data[['packet_size', 'interval']].values
-                    y_window = window_data['is_botnet'].values
-                    
-                    X_window_scaled = scaler.transform(X_window)
-                    y_pred_window = model.predict(X_window_scaled)
-                    
-                    accuracy = accuracy_score(y_window, y_pred_window)
-                    avg_timestamp = window_data['timestamp'].mean()
-                    
-                    performance_over_time.append({
-                        'timestamp': avg_timestamp,
-                        'accuracy': accuracy
-                    })
-            
-            if performance_over_time:
-                perf_df = pd.DataFrame(performance_over_time)
-                fig = px.line(
-                    perf_df,
-                    x='timestamp',
-                    y='accuracy',
-                    title="Model Accuracy Over Simulation Time",
-                    labels={'timestamp': 'Simulation Time (s)', 'accuracy': 'Accuracy'}
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            try:
+                # Split data into time windows and evaluate
+                df_sorted = df.sort_values('timestamp')
+                window_size = max(50, len(df_sorted) // 10)  # Ensure minimum window size
+                
+                performance_over_time = []
+                for i in range(0, len(df_sorted) - window_size, max(1, window_size // 2)):
+                    window_data = df_sorted.iloc[i:i+window_size]
+                    if len(window_data) > 10 and window_data['is_botnet'].nunique() > 1:
+                        try:
+                            X_window = window_data[['packet_size', 'interval']].values
+                            y_window = window_data['is_botnet'].values
+                            
+                            # Check for valid data
+                            if len(X_window) > 0 and len(y_window) > 0:
+                                X_window_scaled = scaler.transform(X_window)
+                                y_pred_window = model.predict(X_window_scaled)
+                                
+                                accuracy = accuracy_score(y_window, y_pred_window)
+                                avg_timestamp = window_data['timestamp'].mean()
+                                
+                                performance_over_time.append({
+                                    'timestamp': avg_timestamp,
+                                    'accuracy': accuracy
+                                })
+                        except Exception as window_error:
+                            continue  # Skip problematic windows
+                
+                if performance_over_time:
+                    perf_df = pd.DataFrame(performance_over_time)
+                    fig = px.line(
+                        perf_df,
+                        x='timestamp',
+                        y='accuracy',
+                        title="Model Accuracy Over Simulation Time",
+                        labels={'timestamp': 'Simulation Time (s)', 'accuracy': 'Accuracy'}
+                    )
+                    fig.update_layout(height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough data windows for performance analysis over time")
+            except Exception as e:
+                st.warning(f"Could not analyze performance over time: {str(e)}")
+                st.info("This feature requires substantial timestamp data from simulation")
