@@ -20,31 +20,31 @@ def create_sample_data(n_samples=1000):
     intervals = np.abs(np.concatenate([normal_intervals, botnet_intervals]))
     labels = np.concatenate([np.zeros(n_samples // 2), np.ones(n_samples // 2)])
 
-    df = pd.DataFrame({
+    return pd.DataFrame({
         'packet_size': packet_sizes,
         'interval': intervals,
         'is_botnet': labels.astype(int)
-    })
-    return df.sample(frac=1).reset_index(drop=True)
+    }).sample(frac=1).reset_index(drop=True)
 
 # --------------------
-# Load Dataset
+# Load Dataset with Guaranteed Output
 # --------------------
 @st.cache_data
 def load_data():
-    try:
-        if os.path.exists("synthetic_robot_logs.csv"):
+    if os.path.exists("synthetic_robot_logs.csv"):
+        try:
             df = pd.read_csv("synthetic_robot_logs.csv")
-            st.success("✅ Loaded dataset from file")
-        else:
-            st.warning("⚠️ Dataset not found. Generating synthetic data instead.")
-            df = create_sample_data(1000)
-        if not all(col in df.columns for col in ["packet_size", "interval", "is_botnet"]):
-            st.error("Dataset must contain 'packet_size', 'interval', 'is_botnet' columns")
-            st.stop()
-        return df
-    except Exception as e:
-        st.error(f"Error loading dataset: {e}")
+            if all(col in df.columns for col in ["packet_size", "interval", "is_botnet"]):
+                st.success("✅ Loaded dataset from file")
+                return df
+            else:
+                st.warning("⚠️ CSV missing required columns. Using synthetic data.")
+                return create_sample_data(1000)
+        except Exception as e:
+            st.warning(f"⚠️ Error reading file: {e}. Using synthetic data.")
+            return create_sample_data(1000)
+    else:
+        st.warning("⚠️ Dataset not found. Using synthetic data.")
         return create_sample_data(1000)
 
 # --------------------
@@ -60,7 +60,6 @@ def train_model(df):
 
     model = RandomForestClassifier(n_estimators=50, random_state=42)
     model.fit(X_scaled, y)
-
     return model, scaler
 
 # --------------------
@@ -68,10 +67,9 @@ def train_model(df):
 # --------------------
 def generate_packet(df):
     row = df.sample(1).iloc[0]
-    is_botnet = row["is_botnet"]
     packet_size = np.random.normal(row["packet_size"], 5)
     interval = np.random.normal(row["interval"], 0.05)
-    return abs(packet_size), abs(interval), int(is_botnet)
+    return abs(packet_size), abs(interval), int(row["is_botnet"])
 
 # --------------------
 # Streamlit UI
@@ -79,17 +77,18 @@ def generate_packet(df):
 st.set_page_config(page_title="Botnet Detection Simulation", layout="wide")
 st.title("🤖 Real-Time Botnet Detection Simulation (From Real Dataset)")
 
-df = load_data()
-model, scaler = train_model(df)
-
+# Sidebar first — always visible
 st.sidebar.header("⚙️ Simulation Settings")
 ticks = st.sidebar.number_input("Number of packets", min_value=5, max_value=200, value=20)
 delay = st.sidebar.slider("Delay between packets (seconds)", min_value=0.1, max_value=3.0, value=1.0)
 run_button = st.sidebar.button("Start Simulation")
 
+# Load data AFTER UI
+df = load_data()
+model, scaler = train_model(df)
+
 placeholder_table = st.empty()
 placeholder_chart = st.empty()
-
 df_sim = pd.DataFrame(columns=["Packet Size", "Interval", "Prediction", "Confidence", "Actual"])
 
 if run_button:
@@ -112,7 +111,6 @@ if run_button:
         ]
 
         placeholder_table.dataframe(df_sim.tail(10))
-
         chart_data = df_sim["Prediction"].value_counts().reset_index()
         chart_data.columns = ["Prediction", "Count"]
         placeholder_chart.bar_chart(chart_data.set_index("Prediction"))
