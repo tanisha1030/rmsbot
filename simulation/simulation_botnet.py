@@ -1,15 +1,14 @@
-# simulation_botnet.py (dynamic version)
 import simpy
 import numpy as np
 import pandas as pd
 import time
-from tqdm import tqdm  # for progress bar
+from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
-# Simulation parameters (adjustable)
+# Simulation parameters
 NUM_ROBOTS = 10
 SIM_TIME = 50  # seconds
 BOTNET_RATIO = 0.3
@@ -49,6 +48,8 @@ def robot_traffic(env, robot_id, is_botnet):
 
 def run_simulation():
     """Run the simulation with progress bar."""
+    global traffic_data
+    traffic_data = []  # reset
     env = simpy.Environment()
     botnet_ids = set(np.random.choice(range(NUM_ROBOTS), int(NUM_ROBOTS * BOTNET_RATIO), replace=False))
 
@@ -57,8 +58,8 @@ def run_simulation():
 
     print("\n🚀 Starting simulation...\n")
     for _ in tqdm(range(SIM_TIME), desc="Simulating time"):
-        env.step()  # simulate step by step for visible progress
-        time.sleep(0.05)  # slow down for human-readable simulation
+        env.step()
+        time.sleep(0.05)
 
     print("\n✅ Simulation finished!\n")
     df = pd.DataFrame(traffic_data)
@@ -88,7 +89,7 @@ if __name__ == "__main__":
     df = run_simulation()
     print(df.head())
 
-    df.to_csv("simulated_robot_logs.csv", index=False)
-    print("💾 Saved simulated data to simulated_robot_logs.csv")
+    df.to_csv("data/simulated_robot_logs.csv", index=False)
+    print("💾 Saved simulated data to data/simulated_robot_logs.csv")
 
     train_model(df)
