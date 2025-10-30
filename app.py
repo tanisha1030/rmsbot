@@ -567,7 +567,7 @@ if df is not None and model is not None:
                 st.info("""
                 **Interpretation Guide:**
                 - **Normal:** Typical network behavior
-                - 🔴 **Red points (Botnet):** Potentially malicious activity
+                - **Botnet:** Potentially malicious activity
                 - Look for clustering patterns that distinguish botnet from normal traffic
                 - Interactive: Hover over points to see details, zoom and pan to explore
                 """)
